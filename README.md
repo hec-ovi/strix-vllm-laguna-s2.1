@@ -36,9 +36,23 @@ The container gets the iGPU via `/dev/kfd` + `/dev/dri` passthrough; no ROCm ins
 - Thinking is off by default. Per request: `"chat_template_kwargs": {"enable_thinking": true}`.
 - Recommended sampling: temp 0.7, top-p 0.95. Do not combine min_p with DFlash.
 
-## Expected performance
+## Measured results
 
-Decode reads ~4.2GB of BF16 attention weights plus ~2.4GB of INT4 expert weights per token. At Strix Halo's 256GB/s that caps decode near 35-40 tok/s theoretical; DFlash is what makes it comfortable in practice.
+First published numbers for this model on this chip through vLLM (single stream, `VLLM_ATTENTION_BACKEND=TRITON_ATTN`, thinking off, prefix cache defeated per round; `scripts/bench.sh`). Baseline column is llama.cpp Vulkan serving the same model on the same machine.
+
+| Context | vLLM prefill t/s | vLLM decode t/s | Vulkan prefill t/s | Vulkan decode t/s |
+|---------|------------------|-----------------|--------------------|-------------------|
+| 2k  | 752 | 10.9 | 293 | 22.7 |
+| 8k  | 476 | 7.2  | 311 | 22.0 |
+| 16k | 301 | 5.0  | 275 | 21.1 |
+
+Prefill wins by 2.5x at 2k and 1.5x at 8k. Decode currently loses: vLLM's Triton fused-MoE kernels ship no tuned configs for gfx1151, so they run on heuristic fallbacks. A `benchmark_moe.py` grid search for this model's expert shape (256 experts, top-10, intermediate 1024) is the open work; theoretical decode ceiling from weight-read bandwidth is 35-40 t/s.
+
+Other numbers: model load 67.5 GiB in 161s, KV cache 38.4 GiB = 1.63M tokens capacity (only 12 of 48 layers use global attention; the rest are 512-token sliding window with FP8 KV).
+
+## Build notes for gfx1151 (the part that cost a day)
+
+Every fix is a commit in this repo. The ones any vLLM-from-source build on Strix Halo will hit: TheRock ships its LLVM toolchain but the host needs none (the image installs `build-essential pkg-config libdrm-dev libnuma-dev`); the HIP CMake packages live in the `devel` extra, not `libraries`; clang rejects vLLM's direct `<mwaitxintrin.h>` include that gcc tolerates; TheRock's torchvision must match its torch or `torchvision::nms` fails at import; vLLM's ROCm platform detection hard-requires the `amdsmi` python bindings, which TheRock bundles at `_rocm_sdk_core/share/amd_smi` but does not install, and loading them needs the SDK's `rocm_sysdeps` on the loader path (ldconfig entries, not `LD_LIBRARY_PATH`, which shadows the RPATH'd HIP runtime and breaks GPU enumeration).
 
 ## Links
 
