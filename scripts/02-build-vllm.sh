@@ -14,6 +14,7 @@ git checkout "$VLLM_REF"
 
 # keep the TheRock torch instead of letting the build replace it
 python use_existing_torch.py
+pip install cmake ninja
 pip install -r requirements/rocm.txt
 
 export VLLM_TARGET_DEVICE=rocm

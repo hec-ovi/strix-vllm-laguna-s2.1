@@ -3,7 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-python3 -m venv .venv
+# uv instead of python3-venv: host python has no ensurepip and no sudo assumed
+uv venv --seed --clear .venv
 source .venv/bin/activate
 pip install --upgrade pip
 
