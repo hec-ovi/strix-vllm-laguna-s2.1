@@ -33,6 +33,9 @@ RUN CMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)" uv pip install --no-build-isola
 # dir shadows the RPATH'd HIP runtime and breaks GPU enumeration entirely.
 RUN uv pip install /opt/venv/lib/python3.13/site-packages/_rocm_sdk_core/share/amd_smi && \
     ln -s /opt/venv/lib/python3.13/site-packages/_rocm_sdk_core/lib/libamd_smi.so.26 /usr/local/lib/libamd_smi.so && \
+    printf '%s\n' /opt/venv/lib/python3.13/site-packages/_rocm_sdk_core/lib \
+                  /opt/venv/lib/python3.13/site-packages/_rocm_sdk_core/lib/rocm_sysdeps/lib \
+                  > /etc/ld.so.conf.d/rocm-sdk.conf && \
     ldconfig
 
 WORKDIR /workspace
