@@ -4,3 +4,4 @@ vllm-src/
 __pycache__/
 *.log
 docs/IDEA.md
+.env
