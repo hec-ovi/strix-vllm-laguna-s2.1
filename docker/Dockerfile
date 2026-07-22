@@ -27,5 +27,11 @@ ENV VLLM_TARGET_DEVICE=rocm PYTORCH_ROCM_ARCH=gfx1151
 # hip-lang and friends live in the devel SDK, not the core package
 RUN CMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)" uv pip install --no-build-isolation .
 
+# vLLM detects ROCm via the amdsmi python bindings, which TheRock ships in the
+# SDK but does not install; without them platform detection fails at startup.
+RUN uv pip install /opt/venv/lib/python3.13/site-packages/_rocm_sdk_core/share/amd_smi
+ENV LD_LIBRARY_PATH=/opt/venv/lib/python3.13/site-packages/_rocm_sdk_devel/lib
+
+WORKDIR /workspace
 EXPOSE 8000
 ENTRYPOINT ["vllm", "serve"]
