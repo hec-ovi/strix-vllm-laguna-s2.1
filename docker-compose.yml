@@ -10,6 +10,12 @@ services:
       - "990"   # render (owns /dev/kfd)
       - "44"    # video (owns /dev/dri)
     ipc: host
+    environment:
+      - VLLM_ATTENTION_BACKEND
+      - VLLM_TUNED_CONFIG_FOLDER
+      # AITER FP8/MoE/RMSNorm paths misbehave on gfx1x (established in
+      # hec-ovi/vllm-awq4-qwen); default off on this hardware
+      - VLLM_ROCM_USE_AITER=${VLLM_ROCM_USE_AITER:-0}
     shm_size: 16g
     security_opt:
       - seccomp=unconfined
