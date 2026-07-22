@@ -13,7 +13,7 @@ ENV PATH="$VENV/bin:$PATH" VIRTUAL_ENV=$VENV
 # TheRock nightly ROCm + PyTorch for gfx1151
 ARG ROCM_INDEX=https://rocm.nightlies.amd.com/whl-multi-arch/
 RUN uv pip install --index-url $ROCM_INDEX "rocm[libraries,devel,device-gfx1151]" && \
-    uv pip install --index-url $ROCM_INDEX "torch[device-gfx1151]" torchaudio
+    uv pip install --index-url $ROCM_INDEX "torch[device-gfx1151]" "torchvision[device-gfx1151]" torchaudio
 
 # vLLM from source: Laguna support starts at 0.25.0, gfx1151 is not an upstream target
 ARG VLLM_REF=v0.25.1
