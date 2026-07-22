@@ -1,37 +1,39 @@
-"""Measure prefill and decode throughput of the running server.
+"""Prefill/decode throughput table across context sizes, one row per context.
 
-Prefill: send a ~8k-token prompt, take prompt_tokens / time-to-first-token.
-Decode: tokens per second over the rest of the stream.
-Run against whatever is on :8000 (base or DFlash overlay), three rounds each.
+Matches the llama-vulkan-strix table format for direct comparison:
+prefill tok/s = prompt_tokens / time-to-first-token (prefix cache defeated
+by a unique nonce at position 0), decode tok/s = streamed tokens per second
+after the first token. One warmup request, then one measured round per size.
 """
 
 import json
-import statistics
 import sys
 import time
 
 from openai import OpenAI
 
 BASE_URL = "http://127.0.0.1:8000/v1"
-ROUNDS = 3
+CONTEXTS = [2048, 8192, 16384, 32768]
 
-client = OpenAI(base_url=BASE_URL, api_key="none")
+client = OpenAI(base_url=BASE_URL, api_key="none", timeout=1800)
 model = client.models.list().data[0].id
 
-# ~8k tokens of prompt material: repeated prose, then one real question
-filler = ("The quick brown fox jumps over the lazy dog. " * 12 + "\n") * 55
-prompt = filler + "\nIn one long paragraph, explain what a mixture-of-experts model is."
+SENTENCE = "The quick brown fox jumps over the lazy dog and the slow red crab. "  # ~16 tok
 
-prefill_rates, decode_rates = [], []
 
-for r in range(ROUNDS):
+def build_prompt(nonce: str, target_tokens: int) -> str:
+    reps = max(1, (target_tokens - 60) // 16)
+    return (f"benchmark {nonce}. " + SENTENCE * reps
+            + "\nIn one long paragraph, explain what a mixture-of-experts model is.")
+
+
+def measure(nonce: str, target_tokens: int):
     t0 = time.perf_counter()
     ttft = None
-    n_tokens = 0
     usage = None
     stream = client.chat.completions.create(
         model=model,
-        messages=[{"role": "user", "content": prompt}],
+        messages=[{"role": "user", "content": build_prompt(nonce, target_tokens)}],
         stream=True,
         stream_options={"include_usage": True},
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
@@ -40,23 +42,22 @@ for r in range(ROUNDS):
         now = time.perf_counter()
         if chunk.usage is not None:
             usage = chunk.usage
-        if chunk.choices and chunk.choices[0].delta.content:
-            if ttft is None:
-                ttft = now - t0
-            n_tokens += 1
+        if ttft is None and chunk.choices and chunk.choices[0].delta.content:
+            ttft = now - t0
     total = time.perf_counter() - t0
-    prompt_tokens = usage.prompt_tokens if usage else 0
-    completion_tokens = usage.completion_tokens if usage else n_tokens
-    prefill = prompt_tokens / ttft if ttft else 0.0
-    decode = completion_tokens / (total - ttft) if ttft and total > ttft else 0.0
-    prefill_rates.append(prefill)
-    decode_rates.append(decode)
-    print(f"round {r + 1}: prompt={prompt_tokens} tok, ttft={ttft:.2f}s, "
-          f"prefill={prefill:.1f} tok/s, completion={completion_tokens} tok, "
-          f"decode={decode:.1f} tok/s", file=sys.stderr)
+    p = usage.prompt_tokens
+    c = usage.completion_tokens
+    return p, c, p / ttft, (c / (total - ttft) if total > ttft and c > 1 else 0.0)
 
-print(json.dumps({
-    "prefill_tok_s": round(statistics.median(prefill_rates), 1),
-    "decode_tok_s": round(statistics.median(decode_rates), 1),
-    "rounds": ROUNDS,
-}))
+
+measure("warmup-x", 512)  # absorb first-request graph/kernel compiles
+
+rows = []
+for ctx in CONTEXTS:
+    p, c, prefill, decode = measure(f"ctx{ctx}-n{ctx * 31}", ctx)
+    rows.append({"context": ctx, "prompt_tokens": p,
+                 "prefill_tok_s": round(prefill, 1), "decode_tok_s": round(decode, 1)})
+    print(f"{ctx:>6}: prompt={p} prefill={prefill:.1f} t/s decode={decode:.1f} t/s "
+          f"(completion={c} tok)", file=sys.stderr)
+
+print(json.dumps(rows))
