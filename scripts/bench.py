@@ -13,7 +13,9 @@ import time
 from openai import OpenAI
 
 BASE_URL = "http://127.0.0.1:8000/v1"
-CONTEXTS = [2048, 8192, 16384, 32768]
+# BENCH_CONTEXTS=2048 (or comma list) for fast iteration loops
+import os
+CONTEXTS = [int(c) for c in os.environ.get("BENCH_CONTEXTS", "2048,8192,16384,32768").split(",")]
 
 client = OpenAI(base_url=BASE_URL, api_key="none", timeout=1800)
 model = client.models.list().data[0].id
