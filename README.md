@@ -20,12 +20,13 @@ INT4 quantizes only the MoE expert weights to 4 bit (compressed-tensors pack-qua
 ## Run
 
 ```bash
-scripts/01-setup-rocm.sh      # TheRock nightly ROCm + gfx1151 PyTorch into .venv
-scripts/02-build-vllm.sh      # vLLM v0.25.1 source build (Laguna support starts at 0.25.0)
-scripts/03-download-model.sh  # INT4 (~72 GB) + DFlash draft (~2 GB)
-scripts/04-serve.sh           # serve on 127.0.0.1:8000
-scripts/05-smoke-test.sh      # against the running server
+scripts/download-model.sh   # INT4 (~72 GB) + DFlash draft (~2 GB) into ./models
+docker compose build        # Ubuntu 26.04 + TheRock ROCm + vLLM v0.25.1 source build
+docker compose up -d        # serve on 127.0.0.1:8000
+scripts/smoke-test.sh       # against the running server
 ```
+
+The container gets the iGPU via `/dev/kfd` + `/dev/dri` passthrough; no ROCm install needed on the host. Build notes learned the hard way (kept here because any gfx1151 source build hits them): the HIP CMake packages live in TheRock's `devel` extra, `pkg-config` must exist, and clang rejects vLLM's direct `<mwaitxintrin.h>` include that gcc tolerates. The Dockerfile handles all three.
 
 ## Serving notes
 
