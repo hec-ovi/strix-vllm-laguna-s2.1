@@ -5,3 +5,4 @@ __pycache__/
 *.log
 docs/IDEA.md
 .env
+cache/
