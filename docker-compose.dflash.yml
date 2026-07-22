@@ -1,0 +1,15 @@
+# Overlay: DFlash speculative decoding (up to 15 draft tokens per step).
+# Run: docker compose -f docker-compose.yml -f docker-compose.dflash.yml up -d
+# Requires models/Laguna-S-2.1-DFlash next to the INT4 weights.
+services:
+  vllm:
+    command: >
+      /models/Laguna-S-2.1-INT4
+      --host 0.0.0.0 --port 8000
+      --trust-remote-code
+      --max-model-len 262144
+      --enable-auto-tool-choice
+      --tool-call-parser poolside_v1
+      --reasoning-parser poolside_v1
+      --moe-backend triton
+      --speculative-config '{"model":"/models/Laguna-S-2.1-DFlash","num_speculative_tokens":15,"method":"dflash"}'

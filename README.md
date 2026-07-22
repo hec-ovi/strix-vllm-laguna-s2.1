@@ -31,8 +31,8 @@ The container gets the iGPU via `/dev/kfd` + `/dev/dri` passthrough; no ROCm ins
 ## Serving notes
 
 - `--moe-backend triton` is mandatory: Marlin is CUDA-only and DeepGEMM is incompatible with DFlash. Verify the startup log says triton; vLLM has been seen falling back to Marlin despite the flag ([vllm#40357](https://github.com/vllm-project/vllm/issues/40357)).
-- `DFLASH=1 scripts/04-serve.sh` enables speculative decoding (up to 15 draft tokens per step).
-- `KV_AUTO=1` overrides the checkpoint's FP8 KV cache if RDNA3.5 rejects it.
+- DFlash speculative decoding: `docker compose -f docker-compose.yml -f docker-compose.dflash.yml up -d`.
+- If RDNA3.5 rejects the checkpoint's FP8 KV cache, add `--kv-cache-dtype auto` to the compose command.
 - Thinking is off by default. Per request: `"chat_template_kwargs": {"enable_thinking": true}`.
 - Recommended sampling: temp 0.7, top-p 0.95. Do not combine min_p with DFlash.
 
