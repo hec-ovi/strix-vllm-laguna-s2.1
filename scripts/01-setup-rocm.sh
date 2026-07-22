@@ -9,7 +9,7 @@ source .venv/bin/activate
 pip install --upgrade pip
 
 INDEX=https://rocm.nightlies.amd.com/whl-multi-arch/
-pip install --index-url "$INDEX" "rocm[libraries,device-gfx1151]"
+pip install --index-url "$INDEX" "rocm[libraries,devel,device-gfx1151]"
 pip install --index-url "$INDEX" "torch[device-gfx1151]" "torchvision[device-gfx1151]" torchaudio
 
 python - <<'EOF'

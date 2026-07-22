@@ -14,11 +14,23 @@ git checkout "$VLLM_REF"
 
 # keep the TheRock torch instead of letting the build replace it
 python use_existing_torch.py
-pip install cmake ninja
+pip install cmake ninja pkgconf
 pip install -r requirements/rocm.txt
+
+# clang refuses direct <mwaitxintrin.h> includes (gcc-only); use the umbrella header
+sed -i 's|#include <mwaitxintrin.h>|#include <x86intrin.h>|' csrc/spinloop.cpp
 
 export VLLM_TARGET_DEVICE=rocm
 export PYTORCH_ROCM_ARCH=gfx1151
-pip install --no-build-isolation -e . 2>&1 | tail -20
+# host has gcc but no g++; use TheRock's bundled LLVM toolchain
+VENV_BIN="$(cd ../.venv/bin && pwd)"
+export CC="$VENV_BIN/amdclang"
+export CXX="$VENV_BIN/amdclang++"
+# hipcc_cmake_linker_helper expects plain clang/clang++ names in the venv bin
+ln -sf amdclang   "$VENV_BIN/clang"
+ln -sf amdclang++ "$VENV_BIN/clang++"
+# hip-lang and friends live in the devel SDK, not _rocm_sdk_core
+export CMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+pip install --no-build-isolation -e . -v
 
 python -c "import vllm; print('vllm', vllm.__version__)"
