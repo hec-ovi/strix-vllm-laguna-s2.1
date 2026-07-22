@@ -5,9 +5,10 @@ services:
     devices:
       - /dev/kfd
       - /dev/dri
+    # numeric host GIDs; the Ubuntu image has no named render/video groups
     group_add:
-      - video
-      - render
+      - "990"   # render (owns /dev/kfd)
+      - "44"    # video (owns /dev/dri)
     ipc: host
     shm_size: 16g
     security_opt:
