@@ -1,0 +1,5 @@
+  2048: prompt=1932 prefill=751.7 t/s decode=10.9 t/s (completion=289 tok)
+  8192: prompt=7693 prefill=475.8 t/s decode=7.2 t/s (completion=190 tok)
+ 16384: prompt=15374 prefill=301.0 t/s decode=5.0 t/s (completion=234 tok)
+ 32768: prompt=30735 prefill=171.8 t/s decode=3.1 t/s (completion=237 tok)
+[{"context": 2048, "prompt_tokens": 1932, "prefill_tok_s": 751.7, "decode_tok_s": 10.9}, {"context": 8192, "prompt_tokens": 7693, "prefill_tok_s": 475.8, "decode_tok_s": 7.2}, {"context": 16384, "prompt_tokens": 15374, "prefill_tok_s": 301.0, "decode_tok_s": 5.0}, {"context": 32768, "prompt_tokens": 30735, "prefill_tok_s": 171.8, "decode_tok_s": 3.1}]

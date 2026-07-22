@@ -2,7 +2,7 @@
 
 Serve poolside's [Laguna S 2.1](https://huggingface.co/poolside/Laguna-S-2.1) (118B MoE, 8B active per token) on an AMD Strix Halo box (Ryzen AI Max+ 395, gfx1151, 128GB unified memory) with vLLM built against TheRock nightly ROCm. OpenAI-compatible endpoint, 256K context, optional DFlash speculative decoding. Follow-up to [vllm-qwen](https://github.com/hec-ovi/vllm-qwen), same stack, bigger model.
 
-Status: scripts encode the full build path but have not been executed end to end on the target machine yet. The one open question is whether vLLM's Triton W4A16 MoE path loads the pack-quantized INT4 checkpoint on gfx1151 (the usual Marlin kernels are CUDA-only). The first run of `04-serve.sh` answers it. If it fails, the fallback is poolside's llama.cpp fork (branch `laguna`) with the Q4_K_M GGUF.
+Status: running. Laguna S 2.1 serves end to end on gfx1151 through vLLM 0.25.2 built from source against TheRock ROCm 7.15 nightly. The open question going in, whether vLLM's Triton W4A16 MoE path loads the pack-quantized INT4 checkpoint on this GPU (the usual Marlin kernels are CUDA-only), answered yes: it selects `CompressedTensorsWNA16MoEMethod` on the Triton backend. Measured numbers below.
 
 ## Why INT4
 
@@ -15,7 +15,7 @@ The only variant that fits in 128GB unified memory:
 | INT4    | 72 GB  | yes |
 | NVFP4   | 72 GB  | no (Blackwell only) |
 
-INT4 quantizes only the MoE expert weights to 4 bit (compressed-tensors pack-quantized); attention stays BF16, KV cache ships FP8. KV stays small at long context because only 12 of 48 layers use global attention (the rest are sliding-window, capped at 512 tokens): about 13GB at 256K.
+INT4 quantizes only the MoE expert weights to 4 bit (compressed-tensors pack-quantized); attention stays BF16, KV cache ships FP8. KV stays small at long context because only 12 of 48 layers use global attention (the rest are sliding-window, capped at 512 tokens): the full 262K context allocates 38 GiB of KV, room for 1.63M tokens.
 
 ## Run
 
@@ -26,7 +26,9 @@ docker compose up -d        # serve on 127.0.0.1:8000
 scripts/smoke-test.sh       # against the running server
 ```
 
-The container gets the iGPU via `/dev/kfd` + `/dev/dri` passthrough; no ROCm install needed on the host. Build notes learned the hard way (kept here because any gfx1151 source build hits them): the HIP CMake packages live in TheRock's `devel` extra, `pkg-config` must exist, and clang rejects vLLM's direct `<mwaitxintrin.h>` include that gcc tolerates. The Dockerfile handles all three.
+Overlays (compose merges them onto the base): `-f docker-compose.tuned.yml` loads the gfx1151-tuned decode config, `-f docker-compose.dflash.yml` adds DFlash speculative decoding.
+
+The container gets the iGPU via `/dev/kfd` + `/dev/dri` passthrough; no ROCm install needed on the host. The Dockerfile handles every gfx1151 build quirk (see the build-notes section).
 
 ## Serving notes
 
@@ -38,17 +40,22 @@ The container gets the iGPU via `/dev/kfd` + `/dev/dri` passthrough; no ROCm ins
 
 ## Measured results
 
-First published numbers for this model on this chip through vLLM (single stream, `VLLM_ATTENTION_BACKEND=TRITON_ATTN`, thinking off, prefix cache defeated per round; `scripts/bench.sh`). Baseline column is llama.cpp Vulkan serving the same model on the same machine.
+First published numbers for this model on this chip through vLLM (single stream, `VLLM_ATTENTION_BACKEND=TRITON_ATTN`, thinking off, per-context warmup, prefix cache defeated with a fresh nonce; `scripts/bench.sh`). The Vulkan column is llama.cpp serving the same model on the same box.
 
-| Context | vLLM prefill t/s | vLLM decode t/s | Vulkan prefill t/s | Vulkan decode t/s |
-|---------|------------------|-----------------|--------------------|-------------------|
-| 2k  | 752 | 10.9 | 293 | 22.7 |
-| 8k  | 476 | 7.2  | 311 | 22.0 |
-| 16k | 301 | 5.0  | 275 | 21.1 |
+| Context | vLLM prefill t/s | vLLM decode t/s (default) | vLLM decode t/s (tuned) | Vulkan prefill t/s | Vulkan decode t/s |
+|---------|------------------|---------------------------|-------------------------|--------------------|-------------------|
+| 512 | 380 | – | 15.2 | – | – |
+| 2k  | 752 | 10.9 | 12.8 | 293 | 22.7 |
+| 8k  | 476 | 7.2  | 8.0  | 311 | 22.0 |
+| 16k | 301 | 5.0  | –    | 275 | 21.1 |
 
-Prefill wins by 2.5x at 2k and 1.5x at 8k. Decode currently loses: vLLM's Triton fused-MoE kernels ship no tuned configs for gfx1151, so they run on heuristic fallbacks. A `benchmark_moe.py` grid search for this model's expert shape (256 experts, top-10, intermediate 1024) is the open work; theoretical decode ceiling from weight-read bandwidth is 35-40 t/s.
+Where it stands, honestly:
 
-Other numbers: model load 67.5 GiB in 161s, KV cache 38.4 GiB = 1.63M tokens capacity (only 12 of 48 layers use global attention; the rest are 512-token sliding window with FP8 KV).
+- **Prefill wins**, 2.5x over Vulkan at 2k and 1.5x at 8k. This is the strong result.
+- **Decode loses.** vLLM ships no tuned Triton fused-MoE configs for gfx1151, so the kernels run on heuristic fallbacks. Grid-searching this model's expert shape (256 experts, top-10, intermediate 1024) for single-stream decode (M=1) lifts decode ~17% (10.9 to 12.8 at 2k), still short of Vulkan's 22.7. Bandwidth ceiling for 8B active at INT4 is ~35-40 t/s, so the kernels are leaving most of it on the floor.
+- **The tuned config is a trade, not a free win.** It currently has only an M=1 entry, so its decode tiling bleeds into prefill's large-M GEMMs and drops prefill (752 to 472 at 2k). That is why it is an opt-in overlay, not the default. Tuning the full M range (`scripts/tune-moe.sh 1 2 4 8 16 ... 2048`) is the path to a config that wins both; the committed `moe-configs/` file is the M=1 start.
+
+Next levers, in order: full-M-range MoE tuning, then rocprof-guided kernel work on the SWA decode path (36 of 48 layers hold a 512-token window whose KV should be near-free) and a wave32-specialized fused gather+dequant+GEMV for the experts.
 
 ## Build notes for gfx1151 (the part that cost a day)
 

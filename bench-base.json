@@ -1,1 +1,1 @@
-{"prefill_tok_s": 8537.7, "decode_tok_s": 6.4, "rounds": 3}
+[{"context": 2048, "prompt_tokens": 1932, "prefill_tok_s": 700.2, "decode_tok_s": 10.7}, {"context": 8192, "prompt_tokens": 7693, "prefill_tok_s": 434.6, "decode_tok_s": 6.9}, {"context": 16384, "prompt_tokens": 15374, "prefill_tok_s": 262.8, "decode_tok_s": 4.5}, {"context": 32768, "prompt_tokens": 30735, "prefill_tok_s": 158.6, "decode_tok_s": 3.0}]

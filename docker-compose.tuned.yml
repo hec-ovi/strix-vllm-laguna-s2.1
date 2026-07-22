@@ -1,0 +1,16 @@
+# Overlay: gfx1151-tuned fused-MoE config for single-stream decode.
+# Run: docker compose -f docker-compose.yml -f docker-compose.tuned.yml up -d
+#
+# Measured on this box vs the untuned default (single stream, TRITON_ATTN):
+#   decode  2k: 10.9 -> 12.8 t/s (+17%),  512: 15.2 t/s
+#   prefill 2k:  752 ->  472 t/s  (regresses: the config only has an M=1 entry,
+#                                  so its decode tiling bleeds into prefill's
+#                                  large-M GEMMs). Tune the full M range
+#                                  (scripts/tune-moe.sh 1 2 4 8 16 ... 2048) to
+#                                  win both, then this becomes the default.
+services:
+  vllm:
+    environment:
+      - VLLM_TUNED_CONFIG_FOLDER=/root/moe_configs
+    volumes:
+      - ./moe-configs:/root/moe_configs:ro

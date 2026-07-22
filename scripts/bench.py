@@ -13,9 +13,12 @@ import time
 from openai import OpenAI
 
 BASE_URL = "http://127.0.0.1:8000/v1"
-# BENCH_CONTEXTS=2048 (or comma list) for fast iteration loops
 import os
+# BENCH_CONTEXTS=2048 (or comma list) for fast iteration loops
 CONTEXTS = [int(c) for c in os.environ.get("BENCH_CONTEXTS", "2048,8192,16384,32768").split(",")]
+# BENCH_NONCE must change between runs (pass $(date +%s)) so repeat prompts do
+# not hit the server prefix cache and report a fake near-instant prefill.
+NONCE = os.environ.get("BENCH_NONCE", "static")
 
 client = OpenAI(base_url=BASE_URL, api_key="none", timeout=1800)
 model = client.models.list().data[0].id
@@ -52,11 +55,14 @@ def measure(nonce: str, target_tokens: int):
     return p, c, p / ttft, (c / (total - ttft) if total > ttft and c > 1 else 0.0)
 
 
-measure("warmup-x", 512)  # absorb first-request graph/kernel compiles
+# warmup every context so first-time HIP-graph compilation never lands inside a
+# measured time-to-first-token (which would deflate prefill)
+for ctx in CONTEXTS:
+    measure(f"warm-{NONCE}-{ctx}", ctx)
 
 rows = []
 for ctx in CONTEXTS:
-    p, c, prefill, decode = measure(f"ctx{ctx}-n{ctx * 31}", ctx)
+    p, c, prefill, decode = measure(f"ctx{ctx}-n{NONCE}-{ctx * 31}", ctx)
     rows.append({"context": ctx, "prompt_tokens": p,
                  "prefill_tok_s": round(prefill, 1), "decode_tok_s": round(decode, 1)})
     print(f"{ctx:>6}: prompt={p} prefill={prefill:.1f} t/s decode={decode:.1f} t/s "

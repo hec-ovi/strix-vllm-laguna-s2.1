@@ -11,8 +11,12 @@ services:
       - "44"    # video (owns /dev/dri)
     ipc: host
     environment:
-      - VLLM_ATTENTION_BACKEND
-      - VLLM_TUNED_CONFIG_FOLDER
+      # TRITON_ATTN beats the CDNA-tuned ROCM_ATTN default on gfx1151 (measured)
+      - VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-TRITON_ATTN}
+      # gfx1151-tuned fused-MoE configs are opt-in via docker-compose.tuned.yml:
+      # the current config is decode-only (M=1) and trades prefill, so it is not
+      # a default. Empty here = vLLM's built-in heuristic path.
+      - VLLM_TUNED_CONFIG_FOLDER=${VLLM_TUNED_CONFIG_FOLDER:-}
       # AITER FP8/MoE/RMSNorm paths misbehave on gfx1x (established in
       # hec-ovi/vllm-awq4-qwen); default off on this hardware
       - VLLM_ROCM_USE_AITER=${VLLM_ROCM_USE_AITER:-0}
