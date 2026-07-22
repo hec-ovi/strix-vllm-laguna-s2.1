@@ -29,8 +29,11 @@ RUN CMAKE_PREFIX_PATH="$(rocm-sdk path --cmake)" uv pip install --no-build-isola
 
 # vLLM detects ROCm via the amdsmi python bindings, which TheRock ships in the
 # SDK but does not install; without them platform detection fails at startup.
-RUN uv pip install /opt/venv/lib/python3.13/site-packages/_rocm_sdk_core/share/amd_smi
-ENV LD_LIBRARY_PATH=/opt/venv/lib/python3.13/site-packages/_rocm_sdk_devel/lib
+# Expose only libamd_smi via ldconfig; a global LD_LIBRARY_PATH to the SDK lib
+# dir shadows the RPATH'd HIP runtime and breaks GPU enumeration entirely.
+RUN uv pip install /opt/venv/lib/python3.13/site-packages/_rocm_sdk_core/share/amd_smi && \
+    ln -s /opt/venv/lib/python3.13/site-packages/_rocm_sdk_core/lib/libamd_smi.so.26 /usr/local/lib/libamd_smi.so && \
+    ldconfig
 
 WORKDIR /workspace
 EXPOSE 8000
