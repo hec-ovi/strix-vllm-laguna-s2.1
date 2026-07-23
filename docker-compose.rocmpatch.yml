@@ -1,0 +1,17 @@
+# Overlay: sliding-window block skip for the ROCM_ATTN decode kernel.
+#
+# Stock vLLM's chunked_prefill_paged_decode kernel reads K/V for the entire
+# context and applies the sliding window as a score mask after the loads, so
+# the 36 windowed layers of Laguna pay full-context memory traffic on every
+# decoded token. The override starts the block loop at the window edge
+# instead (one hunk in docker/overrides/chunked_prefill_paged_decode.py
+# against the pinned vLLM ref). TRITON_ATTN already skips window tiles
+# upstream; this brings the ROCM_ATTN default up to par.
+#
+# Mounted over site-packages, so no image rebuild; drop the overlay for stock
+# behavior. Triton JIT-compiles from the mounted source at startup.
+# Run: docker compose -f docker-compose.yml -f docker-compose.rocmpatch.yml up -d
+services:
+  vllm:
+    volumes:
+      - ./docker/overrides/chunked_prefill_paged_decode.py:/opt/venv/lib/python3.13/site-packages/vllm/v1/attention/ops/chunked_prefill_paged_decode.py:ro
