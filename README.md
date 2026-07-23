@@ -66,7 +66,7 @@ The long-context decode decay traced to a concrete cause: the ROCM_ATTN decode k
 | 8k    | 661  | 112 | 5.9x |
 | 16k   | 1520 | 114 | 13.4x |
 
-The patched kernel is flat across context, which is what a 512-token window is supposed to buy. End-to-end long-context decode numbers are pending (single-probe measurement). The no-patch alternative is `ATTN_BACKEND=TRITON_ATTN`, whose upstream kernel already bounds the tile loop to the window; note that neither backend has real end-to-end numbers here yet, since the old env var silently never switched backends.
+The patched kernel is flat across context, which is what a 512-token window is supposed to buy. End to end (single 16k request, 64-token decode window, `scripts/probe-16k.py`): decode 5.0 to 9.2 t/s, +84%, prefill unchanged at ~301 t/s. The remaining decay versus the 2k number comes from the 12 global-attention layers, whose KV legitimately grows with context. The no-patch alternative is `ATTN_BACKEND=TRITON_ATTN`, whose upstream kernel already bounds the tile loop to the window; not yet benchmarked end to end here. The fix is staged as an upstream vLLM PR (`docs/UPSTREAM-swa-skip.md`).
 
 Next levers, in order: end-to-end validation of the SWA fix, full-M-range MoE tuning, then a wave32-specialized fused gather+dequant+GEMV for the experts.
 
