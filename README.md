@@ -26,7 +26,7 @@ docker compose up -d        # serve on 127.0.0.1:8000
 scripts/smoke-test.sh       # against the running server
 ```
 
-Overlays (compose merges them onto the base): `-f docker-compose.tuned.yml` loads the gfx1151-tuned decode config, `-f docker-compose.dflash.yml` adds DFlash speculative decoding.
+Overlays (compose merges them onto the base): `-f docker-compose.tuned.yml` loads the gfx1151-tuned decode config, `-f docker-compose.dflash.yml` adds DFlash speculative decoding, `-f docker-compose.rocmpatch.yml` applies the sliding-window block-skip fix to the ROCM_ATTN decode kernel (see the SWA section).
 
 The container gets the iGPU via `/dev/kfd` + `/dev/dri` passthrough; no ROCm install needed on the host. The Dockerfile handles every gfx1151 build quirk (see the build-notes section).
 
@@ -55,7 +55,20 @@ Where it stands, honestly:
 - **Decode loses.** vLLM ships no tuned Triton fused-MoE configs for gfx1151, so the kernels run on heuristic fallbacks. Grid-searching this model's expert shape (256 experts, top-10, intermediate 1024) for single-stream decode (M=1) lifts decode ~17% (10.9 to 12.8 at 2k), still short of Vulkan's 22.7. Bandwidth ceiling for 8B active at INT4 is ~35-40 t/s, so the kernels are leaving most of it on the floor.
 - **The tuned config is a trade, not a free win.** It currently has only an M=1 entry, so its decode tiling bleeds into prefill's large-M GEMMs and drops prefill (752 to 472 at 2k). That is why it is an opt-in overlay, not the default. Tuning the full M range (`scripts/tune-moe.sh 1 2 4 8 16 ... 2048`) is the path to a config that wins both; the committed `moe-configs/` file is the M=1 start.
 
-Next levers, in order: full-M-range MoE tuning, then rocprof-guided kernel work on the SWA decode path (36 of 48 layers hold a 512-token window whose KV should be near-free) and a wave32-specialized fused gather+dequant+GEMV for the experts.
+### SWA decode kernel fix (kernel-level, measured)
+
+The long-context decode decay traced to a concrete cause: the ROCM_ATTN decode kernel reads K/V for the entire context and applies the 512-token sliding window as a score mask after the loads, so the 36 windowed layers pay full-context bandwidth per decoded token. `docker-compose.rocmpatch.yml` mounts a one-hunk override that starts the kernel's block loop at the window edge instead. Kernel-level numbers on gfx1151 (`scripts/test-swa-skip.py`: bf16, GQA 4:1, window 512, output checked against a plain-torch reference, max abs err 0.002):
+
+| seq len | stock us | patched us | speedup |
+|---------|----------|------------|---------|
+| 512   | 117  | 116 | 1.0x |
+| 2k    | 221  | 114 | 1.9x |
+| 8k    | 661  | 112 | 5.9x |
+| 16k   | 1520 | 114 | 13.4x |
+
+The patched kernel is flat across context, which is what a 512-token window is supposed to buy. End-to-end long-context decode numbers are pending (single-probe measurement). The no-patch alternative is `ATTN_BACKEND=TRITON_ATTN`, whose upstream kernel already bounds the tile loop to the window; note that neither backend has real end-to-end numbers here yet, since the old env var silently never switched backends.
+
+Next levers, in order: end-to-end validation of the SWA fix, full-M-range MoE tuning, then a wave32-specialized fused gather+dequant+GEMV for the experts.
 
 ## DFlash status: measured, not recommended
 
