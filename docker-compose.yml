@@ -11,8 +11,6 @@ services:
       - "44"    # video (owns /dev/dri)
     ipc: host
     environment:
-      # TRITON_ATTN beats the CDNA-tuned ROCM_ATTN default on gfx1151 (measured)
-      - VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-TRITON_ATTN}
       # gfx1151-tuned fused-MoE configs are opt-in via docker-compose.tuned.yml:
       # the current config is decode-only (M=1) and trades prefill, so it is not
       # a default. Empty here = vLLM's built-in heuristic path.
@@ -20,6 +18,8 @@ services:
       # AITER FP8/MoE/RMSNorm paths misbehave on gfx1x (established in
       # hec-ovi/vllm-awq4-qwen); default off on this hardware
       - VLLM_ROCM_USE_AITER=${VLLM_ROCM_USE_AITER:-0}
+      # set to /root/traces to enable the /start_profile endpoint (scripts/profile-decode.py)
+      - VLLM_TORCH_PROFILER_DIR=${VLLM_TORCH_PROFILER_DIR:-}
     shm_size: 16g
     security_opt:
       - seccomp=unconfined
@@ -29,6 +29,7 @@ services:
       - ./models:/models
       - ./cache/vllm:/root/.cache/vllm
       - ./cache/triton:/root/.triton
+      - ./traces:/root/traces
     command: >
       /models/Laguna-S-2.1-INT4
       --host 0.0.0.0 --port 8000
@@ -38,3 +39,4 @@ services:
       --tool-call-parser poolside_v1
       --reasoning-parser poolside_v1
       --moe-backend triton
+      --attention-backend ${ATTN_BACKEND:-ROCM_ATTN}

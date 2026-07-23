@@ -1,6 +1,11 @@
 # Overlay: DFlash speculative decoding (up to 15 draft tokens per step).
 # Run: docker compose -f docker-compose.yml -f docker-compose.dflash.yml up -d
 # Requires models/Laguna-S-2.1-DFlash next to the INT4 weights.
+#
+# --max-num-seqs 8 is mandatory, not tuning: DFlash is parallel drafting, so the
+# scheduler reserves num_speculative_tokens slots per sequence up front
+# (max_num_batched_tokens - 15 * max_num_seqs). At the default max_num_seqs the
+# budget goes negative and the server refuses to start.
 services:
   vllm:
     command: >
@@ -12,4 +17,6 @@ services:
       --tool-call-parser poolside_v1
       --reasoning-parser poolside_v1
       --moe-backend triton
-      --speculative-config '{"model":"/models/Laguna-S-2.1-DFlash","num_speculative_tokens":15,"method":"dflash"}'
+      --attention-backend ${ATTN_BACKEND:-ROCM_ATTN}
+      --max-num-seqs 8
+      --speculative-config '{"model":"/models/Laguna-S-2.1-DFlash","num_speculative_tokens":${SPEC_TOKENS:-7},"method":"dflash"}'
