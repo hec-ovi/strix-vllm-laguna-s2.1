@@ -19,4 +19,4 @@ services:
       --moe-backend triton
       --attention-backend ${ATTN_BACKEND:-ROCM_ATTN}
       --max-num-seqs 8
-      --speculative-config '{"model":"/models/Laguna-S-2.1-DFlash","num_speculative_tokens":${SPEC_TOKENS:-7},"method":"dflash"}'
+      --speculative-config '{"model":"/models/Laguna-S-2.1-DFlash","num_speculative_tokens":${SPEC_TOKENS:-7},"method":"dflash","attention_backend":"${DRAFT_ATTN:-ROCM_ATTN}"}'

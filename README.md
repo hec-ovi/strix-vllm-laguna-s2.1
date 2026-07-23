@@ -33,21 +33,21 @@ The container gets the iGPU via `/dev/kfd` + `/dev/dri` passthrough; no ROCm ins
 ## Serving notes
 
 - `--moe-backend triton` is mandatory: Marlin is CUDA-only and DeepGEMM is incompatible with DFlash. Verify the startup log says triton; vLLM has been seen falling back to Marlin despite the flag ([vllm#40357](https://github.com/vllm-project/vllm/issues/40357)).
-- DFlash speculative decoding: `docker compose -f docker-compose.yml -f docker-compose.dflash.yml up -d`.
+- DFlash speculative decoding: `docker compose -f docker-compose.yml -f docker-compose.dflash.yml up -d`. Currently a net loss on this stack, see the DFlash status section before using it.
 - If RDNA3.5 rejects the checkpoint's FP8 KV cache, add `--kv-cache-dtype auto` to the compose command.
 - Thinking is off by default. Per request: `"chat_template_kwargs": {"enable_thinking": true}`.
 - Recommended sampling: temp 0.7, top-p 0.95. Do not combine min_p with DFlash.
 
 ## Measured results
 
-First published numbers for this model on this chip through vLLM (single stream, `VLLM_ATTENTION_BACKEND=TRITON_ATTN`, thinking off, per-context warmup, prefix cache defeated with a fresh nonce; `scripts/bench.sh`). The Vulkan column is llama.cpp serving the same model on the same box.
+First published numbers for this model on this chip through vLLM (single stream, ROCM_ATTN attention backend, thinking off, per-context warmup, prefix cache defeated with a fresh nonce; `scripts/bench.sh`). The Vulkan column is llama.cpp serving the same model on the same box. Note on the backend: vLLM 0.25.2 silently ignores the old `VLLM_ATTENTION_BACKEND` env var, so both recorded runs used the auto-selected ROCM_ATTN and differ only by noise; the working knob is `--attention-backend`, wired in the compose command as `ATTN_BACKEND=`.
 
 | Context | vLLM prefill t/s | vLLM decode t/s (default) | vLLM decode t/s (tuned) | Vulkan prefill t/s | Vulkan decode t/s |
 |---------|------------------|---------------------------|-------------------------|--------------------|-------------------|
-| 512 | 380 | – | 15.2 | – | – |
+| 512 | 380 | n/a | 15.2 | n/a | n/a |
 | 2k  | 752 | 10.9 | 12.8 | 293 | 22.7 |
 | 8k  | 476 | 7.2  | 8.0  | 311 | 22.0 |
-| 16k | 301 | 5.0  | –    | 275 | 21.1 |
+| 16k | 301 | 5.0  | n/a  | 275 | 21.1 |
 
 Where it stands, honestly:
 
@@ -56,6 +56,12 @@ Where it stands, honestly:
 - **The tuned config is a trade, not a free win.** It currently has only an M=1 entry, so its decode tiling bleeds into prefill's large-M GEMMs and drops prefill (752 to 472 at 2k). That is why it is an opt-in overlay, not the default. Tuning the full M range (`scripts/tune-moe.sh 1 2 4 8 16 ... 2048`) is the path to a config that wins both; the committed `moe-configs/` file is the M=1 start.
 
 Next levers, in order: full-M-range MoE tuning, then rocprof-guided kernel work on the SWA decode path (36 of 48 layers hold a 512-token window whose KV should be near-free) and a wave32-specialized fused gather+dequant+GEMV for the experts.
+
+## DFlash status: measured, not recommended
+
+The DFlash drafter loads and runs behind the overlay, but as measured here it is a net loss: 0% draft acceptance on this stack (every drafted token rejected), which drags decode from 10.9 to about 2-3 t/s at 2k because the server does draft work and throws all of it away. The ceiling is low even where DFlash is fully supported: DGX Spark users report mostly 2-3% acceptance for this same drafter on an NVFP4 stack. The overlay needs `--max-num-seqs 8` to start at all (parallel drafting reserves draft-token slots per sequence; the default sends the scheduler budget negative).
+
+The exact 0% here is unresolved. The two custom GPU paths that feed the drafter both pass bit-accuracy tests on gfx1151 (`scripts/test-dflash-kernels.py`, run it inside the container), so what remains suspect is the compiled-model paths or the drafter's attention. Knobs for anyone digging further: `SPEC_TOKENS` (default 7, per the model card), `DRAFT_ATTN` to pin the drafter's attention backend (the drafter never inherits the target's `--attention-backend` flag), `scripts/spec-accept.py` to read acceptance from one greedy request. Until acceptance is real on this stack, run without the overlay.
 
 ## Build notes for gfx1151 (the part that cost a day)
 
